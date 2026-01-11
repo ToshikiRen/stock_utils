@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from src.data_fetcher import get_stock_data, search_stocks
+from src.data_fetcher import get_stock_data, search_stocks, search_stocks_async
 from src.analysis import calculate_moving_averages
 from src.visualization import plot_stock_with_mas
 from datetime import datetime, timedelta
@@ -15,18 +15,19 @@ class StockChartApp:
         self.root = root
         self.root.title("Stock Chart Viewer")
         self.setup_ui()
+        self.load_initial_stocks()  # Load stocks when app starts
         
     def setup_ui(self):
         # Search frame
         search_frame = ttk.Frame(self.root)
         search_frame.pack(pady=10, padx=10, fill='x')
         
+        ttk.Label(search_frame, text="Filter stocks:").pack(side='left', padx=5)
+        
         self.search_var = tk.StringVar()
+        self.search_var.trace_add('write', self.on_search_change)  # Add callback for real-time filtering
         self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
         self.search_entry.pack(side='left', fill='x', expand=True)
-        
-        search_button = ttk.Button(search_frame, text="Search", command=self.search_stock)
-        search_button.pack(side='right', padx=5)
         
         # Date Selection frame
         date_frame = ttk.LabelFrame(self.root, text="Date Range")
@@ -60,7 +61,7 @@ class StockChartApp:
         
         # Default MA periods
         self.ma_entries = []
-        default_periods = [20, 50, 200]
+        default_periods = [30, 50, 200]
         
         for i, period in enumerate(default_periods):
             frame = ttk.Frame(ma_frame)
@@ -74,35 +75,64 @@ class StockChartApp:
             self.ma_entries.append(entry)
         
         # Stock list
-        self.stock_list = ttk.Treeview(self.root, columns=('Symbol', 'Name', 'Exchange'), show='headings')
+        self.stock_list = ttk.Treeview(self.root, columns=('Symbol', 'Name', 'Exchange'), show='headings', height=5)
         self.stock_list.heading('Symbol', text='Symbol')
         self.stock_list.heading('Name', text='Name')
         self.stock_list.heading('Exchange', text='Exchange')
-        self.stock_list.pack(pady=10, padx=10, fill='both')
+        self.stock_list.pack(pady=5, padx=5, fill='both')
         
         # Bind double-click event
         self.stock_list.bind('<Double-1>', self.on_stock_select)
         
-        # Chart frame
+        # Chart frame with proper weight configuration
         self.chart_frame = ttk.Frame(self.root)
         self.chart_frame.pack(pady=10, padx=10, fill='both', expand=True)
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+        self.chart_frame.grid_rowconfigure(0, weight=1)
+        self.chart_frame.grid_columnconfigure(0, weight=1)
         
-    def search_stock(self):
-        query = self.search_var.get()
-        results = search_stocks(query)
+    def load_initial_stocks(self):
+        """Load and display the initial list of stocks."""
+        self.update_stock_list([])  # Clear the list first
+        search_stocks_async("", self.update_stock_list)  # Load asynchronously
         
+    def update_stock_list(self, results):
+        """Update the stock list with the given results."""
+        # Schedule the update on the main thread to avoid threading issues
+        self.root.after(0, self._update_stock_list_internal, results)
+    
+    def _update_stock_list_internal(self, results):
+        """Internal method to actually update the stock list."""
         # Clear previous results
         for item in self.stock_list.get_children():
             self.stock_list.delete(item)
             
         # Add new results
         for result in results:
+            # Handle both old format (common_stocks) and new format (yf.Search quotes)
+            if 'name' in result:
+                # Old format from common_stocks
+                name = result['name']
+                exchange = result['exchange']
+                symbol = result['symbol']
+            else:
+                # New format from yf.Search().quotes
+                name = result.get('longname', result.get('shortname', 'Unknown'))
+                exchange = result.get('exchDisp', result.get('exchange', 'Unknown'))
+                symbol = result.get('symbol', '')
+                
             self.stock_list.insert('', 'end', values=(
-                result['symbol'],
-                result['name'],
-                result['exchange']
+                symbol,
+                name,
+                exchange
             ))
             
+    def on_search_change(self, *args):
+        """Handle real-time filtering as user types."""
+        query = self.search_var.get()
+        search_stocks_async(query, self.update_stock_list)
+        
     def show_chart(self, ticker):
         # Get MA periods from entries
         windows = []
@@ -115,7 +145,7 @@ class StockChartApp:
                 continue
         
         if not windows:
-            windows = [20, 50, 200]  # Default if no valid periods
+            windows = [30, 50, 200]  # Default if no valid periods
             
         # Get maximum MA period for historical data
         max_period = max(windows)
@@ -154,7 +184,22 @@ class StockChartApp:
         toolbar = NavigationToolbar2Tk(canvas, self.chart_frame)
         toolbar.update()
         
-        canvas.get_tk_widget().pack(fill='both', expand=True)
+        # Configure canvas to be responsive
+        canvas_widget = canvas.get_tk_widget()
+        canvas_widget.pack(fill='both', expand=True)
+        
+        # Make the figure responsive to window resize
+        def on_resize(event):
+            # Get the current size of the chart frame
+            width = self.chart_frame.winfo_width()
+            height = self.chart_frame.winfo_height()
+            
+            # Update figure size (in inches, assuming 100 DPI)
+            fig.set_size_inches(width/100, height/100)
+            canvas.draw()
+        
+        # Bind the resize event
+        self.chart_frame.bind('<Configure>', on_resize)
         
     def on_stock_select(self, event):
         """Handle stock selection from the list."""

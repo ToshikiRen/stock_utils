@@ -15,7 +15,8 @@ def plot_stock_with_mas(df: pd.DataFrame, ticker: str, windows: List[int]):
     start_idx = df['Close'].first_valid_index()
     df_display = df.loc[start_idx:]
     
-    fig = plt.figure(figsize=(12, 6))
+    # Create figure with dynamic size based on screen resolution
+    fig = plt.figure(figsize=(10, 5))  # Default size, will be adjusted by the resize handler
     ax = fig.add_subplot(111)
     
     # Plot main price line
@@ -37,7 +38,10 @@ def plot_stock_with_mas(df: pd.DataFrame, ticker: str, windows: List[int]):
     @cursor.connect("add")
     def on_add(sel):
         x, y = sel.target
-        date = pd.Timestamp(x).strftime('%Y-%m-%d')
-        sel.annotation.set_text(f'Date: {date}\nValue: {y:.2f}')
+        # Convert numeric timestamp to pandas datetime using origin='1970-01-01' and unit='D'
+        date = pd.to_datetime(x, unit='D', origin='1970-01-01').strftime('%Y-%m-%d')
+        # Get the line label
+        label = sel.artist.get_label()
+        sel.annotation.set_text(f'{label}\nDate: {date}\nValue: {y:.2f}')
         
     return fig
