@@ -3,11 +3,12 @@ from tkinter import ttk
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from src.data_fetcher import get_stock_data, search_stocks, search_stocks_async
-from src.analysis import calculate_moving_averages
+from src.analysis import calculate_moving_averages, get_financial_indicators
 from src.visualization import plot_stock_with_mas
 from datetime import datetime, timedelta
 from tkcalendar import DateEntry  # You'll need to install this package
 import pandas as pd
+import threading
 
 
 class StockChartApp:
@@ -32,6 +33,7 @@ class StockChartApp:
         analysis_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label="Analysis", menu=analysis_menu)
         analysis_menu.add_command(label="Moving Average Analysis", command=self.show_ma_analysis)
+        analysis_menu.add_command(label="Financial Indicators", command=self.show_financial_indicators)
         
         # Settings Menu
         settings_menu = tk.Menu(self.menubar, tearoff=0)
@@ -108,6 +110,168 @@ class StockChartApp:
                 symbol = self.stock_list.item(selected_items[0])['values'][0]
                 self.show_chart(symbol)
             
+    def show_financial_indicators(self):
+        # Clear the main container
+        for widget in self.main_container.winfo_children():
+            widget.destroy()
+            
+        # Search frame
+        search_frame = ttk.Frame(self.main_container)
+        search_frame.pack(pady=10, padx=10, fill='x')
+        
+        ttk.Label(search_frame, text="Filter stocks:").pack(side='left', padx=5)
+        
+        self.search_var = tk.StringVar()
+        self.search_var.trace_add('write', self.on_search_change)  # Add callback for real-time filtering
+        self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
+        self.search_entry.pack(side='left', fill='x', expand=True)
+        
+        # Stock list
+        self.stock_list = ttk.Treeview(self.main_container, columns=('Symbol', 'Name', 'Exchange'), show='headings', height=5)
+        self.stock_list.heading('Symbol', text='Symbol')
+        self.stock_list.heading('Name', text='Name')
+        self.stock_list.heading('Exchange', text='Exchange')
+        self.stock_list.pack(pady=5, padx=5, fill='x')
+        
+        # Bind stock selection event
+        self.stock_list.bind('<<TreeviewSelect>>', self.on_stock_select_for_indicators)
+        
+        # Create frame for financial indicators
+        self.indicators_frame = ttk.Frame(self.main_container)
+        self.indicators_frame.pack(pady=10, padx=10, fill='both', expand=True)
+        
+        # Create a notebook for organizing indicators
+        self.indicators_notebook = ttk.Notebook(self.indicators_frame)
+        self.indicators_notebook.pack(fill='both', expand=True)
+        
+        # Create tabs for different categories
+        self.market_tab = ttk.Frame(self.indicators_notebook)
+        self.financial_tab = ttk.Frame(self.indicators_notebook)
+        self.growth_tab = ttk.Frame(self.indicators_notebook)
+        self.technical_tab = ttk.Frame(self.indicators_notebook)
+        
+        self.indicators_notebook.add(self.market_tab, text='Market Data')
+        self.indicators_notebook.add(self.financial_tab, text='Financial Metrics')
+        self.indicators_notebook.add(self.growth_tab, text='Growth Metrics')
+        self.indicators_notebook.add(self.technical_tab, text='Technical Indicators')
+        
+        # Load initial stock list
+        self.load_initial_stocks()
+        
+    def on_stock_select_for_indicators(self, event):
+        """Handle stock selection for financial indicators view."""
+        selected_items = self.stock_list.selection()
+        if not selected_items:
+            return
+            
+        symbol = self.stock_list.item(selected_items[0])['values'][0]
+        self.show_financial_data(symbol)
+        
+    def show_financial_data(self, ticker):
+        """Display financial indicators for the selected stock."""
+        # Clear previous data
+        for tab in [self.market_tab, self.financial_tab, self.growth_tab, self.technical_tab]:
+            for widget in tab.winfo_children():
+                widget.destroy()
+                
+        # Create loading labels
+        loading_labels = []
+        for tab in [self.market_tab, self.financial_tab, self.growth_tab, self.technical_tab]:
+            label = ttk.Label(tab, text="Loading data...", anchor='center')
+            label.pack(expand=True, fill='both', padx=10, pady=10)
+            loading_labels.append(label)
+        
+        def fetch_and_display():
+            # Get financial indicators in background thread
+            indicators = get_financial_indicators(ticker)
+            
+            # Schedule UI update on main thread
+            self.root.after(0, lambda: self._update_financial_display(indicators, loading_labels))
+        
+        # Start background thread
+        thread = threading.Thread(target=fetch_and_display)
+        thread.daemon = True  # Thread will be terminated when main program exits
+        thread.start()
+        
+    def _update_financial_display(self, indicators, loading_labels):
+        """Update the UI with fetched financial data."""
+        # Remove loading labels
+        for label in loading_labels:
+            label.destroy()
+                
+        # Market Data Tab
+        market_data = {
+            'Market Cap': indicators.get('Market Cap', 'N/A'),
+            'P/E Ratio': indicators.get('P/E Ratio', 'N/A'),
+            'Forward P/E': indicators.get('Forward P/E', 'N/A'),
+            'PEG Ratio': indicators.get('PEG Ratio', 'N/A'),
+            'Price/Book': indicators.get('Price/Book', 'N/A'),
+            'Dividend Yield': indicators.get('Dividend Yield', 'N/A'),
+        }
+        
+        # Financial Metrics Tab
+        financial_metrics = {
+            'Revenue (TTM)': indicators.get('Revenue (TTM)', 'N/A'),
+            'Profit Margin': indicators.get('Profit Margin', 'N/A'),
+            'Operating Margin': indicators.get('Operating Margin', 'N/A'),
+            'ROE': indicators.get('ROE', 'N/A'),
+            'ROA': indicators.get('ROA', 'N/A'),
+            'Current Ratio': indicators.get('Current Ratio', 'N/A'),
+        }
+        
+        # Growth Metrics Tab
+        growth_metrics = {
+            'Revenue Growth': indicators.get('Revenue Growth', 'N/A'),
+            'Earnings Growth': indicators.get('Earnings Growth', 'N/A'),
+        }
+        
+        # Technical Indicators Tab
+        technical_indicators = {
+            'Beta': indicators.get('Beta', 'N/A'),
+            '52 Week High': indicators.get('52 Week High', 'N/A'),
+            '52 Week Low': indicators.get('52 Week Low', 'N/A'),
+            '50 Day MA': indicators.get('50 Day MA', 'N/A'),
+            '200 Day MA': indicators.get('200 Day MA', 'N/A'),
+        }
+        
+        # Helper function to create indicator display
+        def create_indicator_display(parent, data):
+            # Create a frame for the grid layout
+            grid_frame = ttk.Frame(parent)
+            grid_frame.pack(fill='both', expand=True, padx=10, pady=5)
+
+            # Configure grid columns with weights
+            grid_frame.grid_columnconfigure(1, weight=1)  # Value column should expand
+
+            # Style for headers
+            header_style = {'font': ('TkDefaultFont', 10, 'bold')}
+            value_style = {'font': ('TkDefaultFont', 10)}
+
+            for i, (key, value) in enumerate(data.items()):
+                # Create indicator frame
+                frame = ttk.Frame(grid_frame)
+                frame.grid(row=i, column=0, columnspan=2, sticky='ew', pady=2)
+                frame.grid_columnconfigure(1, weight=1)
+
+                # Label with key
+                label = ttk.Label(frame, text=f"{key}:", anchor='w', **header_style)
+                label.grid(row=0, column=0, padx=(5, 10), sticky='w')
+
+                # Value with right alignment
+                value_label = ttk.Label(frame, text=str(value), anchor='e', **value_style)
+                value_label.grid(row=0, column=1, padx=5, sticky='e')
+
+                # Add separator line
+                if i < len(data) - 1:  # Don't add separator after last item
+                    separator = ttk.Separator(grid_frame, orient='horizontal')
+                    separator.grid(row=i+1, column=0, columnspan=2, sticky='ew', pady=5)
+                
+        # Create displays for each tab
+        create_indicator_display(self.market_tab, market_data)
+        create_indicator_display(self.financial_tab, financial_metrics)
+        create_indicator_display(self.growth_tab, growth_metrics)
+        create_indicator_display(self.technical_tab, technical_indicators)
+        
     def show_ma_analysis(self):
         # Show the MA analysis interface (current main interface)
         self.show_main_interface()
