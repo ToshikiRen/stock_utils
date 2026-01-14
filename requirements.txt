@@ -3,3 +3,4 @@ pandas
 matplotlib
 tkcalendar
 mplcursors
+sv-ttk

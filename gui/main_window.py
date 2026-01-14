@@ -9,11 +9,12 @@ from datetime import datetime, timedelta
 from tkcalendar import DateEntry  # You'll need to install this package
 import pandas as pd
 import threading
-
+import sv_ttk
 
 class StockChartApp:
     def __init__(self, root):
         self.root = root
+        sv_ttk.set_theme("light")
         self.root.title("Stock Chart Viewer")
         
         # Theme settings
@@ -32,131 +33,132 @@ class StockChartApp:
         # Analysis Menu
         analysis_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label="Analysis", menu=analysis_menu)
-        analysis_menu.add_command(label="Moving Average Analysis", command=self.show_ma_analysis)
+        analysis_menu.add_command(label="Moving Average Analysis", command=self.show_main_interface)
         analysis_menu.add_command(label="Financial Indicators", command=self.show_financial_indicators)
         
         # Settings Menu
         settings_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_checkbutton(label="Dark Theme", variable=self.theme_var, command=self.toggle_theme)
-        
+    
+    def show_loading(self, text="Applying theme..."):
+        self.loading = tk.Toplevel(self.root)
+        self.loading.overrideredirect(True)
+        self.loading.attributes("-topmost", True)
+
+        w, h = 260, 90
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - w // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - h // 2
+        self.loading.geometry(f"{w}x{h}+{x}+{y}")
+
+        frame = tk.Frame(self.loading, bg="#1e1e1e", bd=2, relief="ridge")
+        frame.pack(fill="both", expand=True)
+
+        tk.Label(
+            frame,
+            text=text,
+            fg="white",
+            bg="#1e1e1e",
+            font=("Segoe UI", 10)
+        ).pack(expand=True)
+
+        # Force draw immediately
+        self.loading.update_idletasks()
+
+    def hide_loading(self):
+        if hasattr(self, "loading"):
+            self.loading.destroy()
+            del self.loading
+
     def toggle_theme(self):
-        if self.theme_var.get():  # Dark theme
-            self.root.configure(bg='#2b2b2b')
-            style = ttk.Style()
-            style.theme_use("clam")
-            style.configure("TCombobox", fieldbackground="#3b3b3b", foreground="white", background="#3b3b3b")
-            style.configure(".", background='#2b2b2b', foreground='white')
-            style.configure("Treeview", background='#2b2b2b', fieldbackground='#2b2b2b', foreground='white')
-            style.configure("Treeview.Heading", background='#2b2b2b', fieldbackground='#2b2b2b', foreground='white')
-            style.configure("TLabel", background='#2b2b2b', foreground='white')
-            style.configure("TFrame", background='#2b2b2b')
-            style.configure("TLabelframe", background='#2b2b2b', foreground='white')
-            style.configure("TLabelframe.Label", background='#2b2b2b', foreground='white')
-            style.configure("TEntry", fieldbackground='#3b3b3b', foreground='white')
-            style.configure("Vertical.TScrollbar", background='#2b2b2b', troughcolor='#2b2b2b')
+        self.show_loading("Switching theme...")
+
+        def apply_theme():
+            if self.theme_var.get():  # Dark
+                sv_ttk.set_theme("dark")
+                plt.style.use("dark_background")
+                self.current_theme = "dark"
+            else:  # Light
+                sv_ttk.set_theme("light")
+                plt.style.use("default")
+                self.current_theme = "light"
             
-            # Configure Entry widgets
-            self.search_entry.configure(style="TEntry")
-            for entry in self.ma_entries:
-                entry.configure(style="TEntry")
+             # Refresh any existing chart
+            if hasattr(self, 'chart_frame') and len(self.chart_frame.winfo_children()) > 0:
+                selected_items = self.stock_list.selection()
+                if selected_items:
+                    symbol = self.stock_list.item(selected_items[0])['values'][0]
+                    self.show_chart(symbol)
+
+            # Hide loading AFTER theme is applied
+            self.hide_loading()
+
+        # Let loading screen render first
+        self.root.after(1000, apply_theme)
+
             
-            # Configure menu colors
-            self.menubar.configure(bg='#2b2b2b', fg='white')
-            for menu in [self.menubar.children[name] for name in self.menubar.children]:
-                menu.configure(bg='#2b2b2b', fg='white', activebackground='#404040', activeforeground='white')
-            
-            # Update DateEntry widgets
-            for date_entry in self.date_entries:
-                date_entry.configure(style="TCombobox")
-            
-            # Update matplotlib style for dark theme
-            plt.style.use('dark_background')
-            
-            self.current_theme = "dark"
-        else:  # Light theme
-            self.root.configure(bg='#f0f0f0')
-            style = ttk.Style()
-            style.configure("TCombobox", fieldbackground="white", foreground="black", background="white")
-            style.configure(".", background='#f0f0f0', foreground='black')
-            style.configure("Treeview", background='white', fieldbackground='white', foreground='black')
-            style.configure("Treeview.Heading", background='white', fieldbackground='white', foreground='black')
-            style.configure("TLabel", background='#f0f0f0', foreground='black')
-            style.configure("TFrame", background='#f0f0f0')
-            style.configure("TLabelframe", background='#f0f0f0', foreground='black')
-            style.configure("TLabelframe.Label", background='#f0f0f0', foreground='black')
-            style.configure("TEntry", fieldbackground='white', foreground='black')
-            style.configure("Vertical.TScrollbar", background='#f0f0f0', troughcolor='#f0f0f0')
-            
-            # Configure menu colors
-            self.menubar.configure(bg='#f0f0f0', fg='black')
-            for menu in [self.menubar.children[name] for name in self.menubar.children]:
-                menu.configure(bg='#f0f0f0', fg='black', activebackground='#d0d0d0', activeforeground='black')
-            
-            # Update DateEntry widgets
-            for date_entry in self.date_entries:
-                date_entry.configure(background='white', foreground='black',
-                                  selectbackground='#0078d7', selectforeground='white')
-            
-            # Update matplotlib style for light theme
-            plt.style.use('default')
-            
-            self.current_theme = "light"
-            
-        # Refresh any existing chart
-        if hasattr(self, 'chart_frame') and len(self.chart_frame.winfo_children()) > 0:
-            selected_items = self.stock_list.selection()
-            if selected_items:
-                symbol = self.stock_list.item(selected_items[0])['values'][0]
-                self.show_chart(symbol)
+       
             
     def show_financial_indicators(self):
-        # Clear the main container
-        for widget in self.main_container.winfo_children():
-            widget.destroy()
-            
-        # Search frame
-        search_frame = ttk.Frame(self.main_container)
-        search_frame.pack(pady=10, padx=10, fill='x')
-        
-        ttk.Label(search_frame, text="Filter stocks:").pack(side='left', padx=5)
-        
-        self.search_var = tk.StringVar()
-        self.search_var.trace_add('write', self.on_search_change)  # Add callback for real-time filtering
-        self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
-        self.search_entry.pack(side='left', fill='x', expand=True)
-        
-        # Stock list
-        self.stock_list = ttk.Treeview(self.main_container, columns=('Symbol', 'Name', 'Exchange'), show='headings', height=5)
-        self.stock_list.heading('Symbol', text='Symbol')
-        self.stock_list.heading('Name', text='Name')
-        self.stock_list.heading('Exchange', text='Exchange')
-        self.stock_list.pack(pady=5, padx=5, fill='x')
-        
-        # Bind stock selection event
-        self.stock_list.bind('<<TreeviewSelect>>', self.on_stock_select_for_indicators)
-        
-        # Create frame for financial indicators
-        self.indicators_frame = ttk.Frame(self.main_container)
-        self.indicators_frame.pack(pady=10, padx=10, fill='both', expand=True)
-        
-        # Create a notebook for organizing indicators
-        self.indicators_notebook = ttk.Notebook(self.indicators_frame)
-        self.indicators_notebook.pack(fill='both', expand=True)
-        
-        # Create tabs for different categories
-        self.market_tab = ttk.Frame(self.indicators_notebook)
-        self.financial_tab = ttk.Frame(self.indicators_notebook)
-        self.growth_tab = ttk.Frame(self.indicators_notebook)
-        self.technical_tab = ttk.Frame(self.indicators_notebook)
-        
-        self.indicators_notebook.add(self.market_tab, text='Market Data')
-        self.indicators_notebook.add(self.financial_tab, text='Financial Metrics')
-        self.indicators_notebook.add(self.growth_tab, text='Growth Metrics')
-        self.indicators_notebook.add(self.technical_tab, text='Technical Indicators')
-        
-        # Load initial stock list
-        self.load_initial_stocks()
+
+        def build_ui():
+            # Clear the main container
+            for widget in self.main_container.winfo_children():
+                widget.destroy()
+
+            # Search frame
+            search_frame = ttk.Frame(self.main_container)
+            search_frame.pack(pady=10, padx=10, fill='x')
+
+            ttk.Label(search_frame, text="Filter stocks:").pack(side='left', padx=5)
+
+            self.search_var = tk.StringVar()
+            self.search_var.trace_add('write', self.on_search_change)
+            self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
+            self.search_entry.pack(side='left', fill='x', expand=True)
+
+            # Stock list
+            self.stock_list = ttk.Treeview(
+                self.main_container,
+                columns=('Symbol', 'Name', 'Exchange'),
+                show='headings',
+                height=5
+            )
+            self.stock_list.heading('Symbol', text='Symbol')
+            self.stock_list.heading('Name', text='Name')
+            self.stock_list.heading('Exchange', text='Exchange')
+            self.stock_list.pack(pady=5, padx=5, fill='x')
+
+            self.stock_list.bind(
+                '<<TreeviewSelect>>',
+                self.on_stock_select_for_indicators
+            )
+
+            # Indicators frame
+            self.indicators_frame = ttk.Frame(self.main_container)
+            self.indicators_frame.pack(pady=10, padx=10, fill='both', expand=True)
+
+            # Notebook
+            self.indicators_notebook = ttk.Notebook(self.indicators_frame)
+            self.indicators_notebook.pack(fill='both', expand=True)
+
+            # Tabs
+            self.market_tab = ttk.Frame(self.indicators_notebook)
+            self.financial_tab = ttk.Frame(self.indicators_notebook)
+            self.growth_tab = ttk.Frame(self.indicators_notebook)
+            self.technical_tab = ttk.Frame(self.indicators_notebook)
+
+            self.indicators_notebook.add(self.market_tab, text='Market Data')
+            self.indicators_notebook.add(self.financial_tab, text='Financial Metrics')
+            self.indicators_notebook.add(self.growth_tab, text='Growth Metrics')
+            self.indicators_notebook.add(self.technical_tab, text='Technical Indicators')
+           
+            # Load stock data LAST
+            self.load_initial_stocks()
+
+        # Let loading screen render first
+        self.root.after(0, build_ui)
+
         
     def on_stock_select_for_indicators(self, event):
         """Handle stock selection for financial indicators view."""
@@ -272,10 +274,6 @@ class StockChartApp:
         create_indicator_display(self.growth_tab, growth_metrics)
         create_indicator_display(self.technical_tab, technical_indicators)
         
-    def show_ma_analysis(self):
-        # Show the MA analysis interface (current main interface)
-        self.show_main_interface()
-        
     def setup_ui(self):
         # Main container frame
         self.main_container = ttk.Frame(self.root)
@@ -285,88 +283,103 @@ class StockChartApp:
         self.show_main_interface()
         
     def show_main_interface(self):
-        # Clear the main container
-        for widget in self.main_container.winfo_children():
-            widget.destroy()
+
+        def build_ui():
+            # Clear the main container
+            for widget in self.main_container.winfo_children():
+                widget.destroy()
+
+            # Search frame
+            search_frame = ttk.Frame(self.main_container)
+            search_frame.pack(pady=10, padx=10, fill='x')
+
+            ttk.Label(search_frame, text="Filter stocks:").pack(side='left', padx=5)
+
+            self.search_var = tk.StringVar()
+            self.search_var.trace_add('write', self.on_search_change)
+            self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
+            self.search_entry.pack(side='left', fill='x', expand=True)
+
+            # Date Selection
+            date_frame = ttk.LabelFrame(self.main_container, text="Date Range")
+            date_frame.pack(pady=5, padx=10, fill='x')
+
+            # Start date
+            start_frame = ttk.Frame(date_frame)
+            start_frame.pack(side='left', padx=5, pady=5)
+            ttk.Label(start_frame, text="Start Date:").pack(side='left', padx=2)
+
+            self.start_date = DateEntry(
+                start_frame,
+                width=12,
+                background='darkblue',
+                foreground='white',
+                borderwidth=2,
+                date_pattern='yyyy-mm-dd'
+            )
+            self.date_entries = [self.start_date]
+            self.start_date.pack(side='left', padx=2)
+
+            # End date
+            end_frame = ttk.Frame(date_frame)
+            end_frame.pack(side='left', padx=5, pady=5)
+            ttk.Label(end_frame, text="End Date:").pack(side='left', padx=2)
+
+            self.end_date = DateEntry(
+                end_frame,
+                width=12,
+                background='darkblue',
+                foreground='white',
+                borderwidth=2,
+                date_pattern='yyyy-mm-dd'
+            )
+            self.date_entries.append(self.end_date)
+            self.end_date.pack(side='left', padx=2)
+
+            self.end_date.set_date(datetime.now())
+            self.start_date.set_date(datetime.now() - timedelta(days=365))
+
+            # MA Config
+            ma_frame = ttk.LabelFrame(self.main_container, text="Moving Average Periods")
+            ma_frame.pack(pady=5, padx=10, fill='x')
+
+            self.ma_entries = []
+            for period in [30, 50, 200]:
+                frame = ttk.Frame(ma_frame)
+                frame.pack(side='left', padx=5, pady=5)
+
+                entry = ttk.Entry(frame, width=5)
+                entry.insert(0, str(period))
+                entry.pack(side='left', padx=2)
+
+                ttk.Label(frame, text="days").pack(side='left')
+                self.ma_entries.append(entry)
+
+            # Stock list
+            self.stock_list = ttk.Treeview(
+                self.main_container,
+                columns=('Symbol', 'Name', 'Exchange'),
+                show='headings',
+                height=5
+            )
+            self.stock_list.heading('Symbol', text='Symbol')
+            self.stock_list.heading('Name', text='Name')
+            self.stock_list.heading('Exchange', text='Exchange')
+            self.stock_list.pack(pady=5, padx=5, fill='both')
+
+            self.stock_list.bind('<Double-1>', self.on_stock_select)
+
+            # Chart frame
+            self.chart_frame = ttk.Frame(self.main_container)
+            self.chart_frame.pack(pady=10, padx=10, fill='both', expand=True)
             
-        # Search frame
-        search_frame = ttk.Frame(self.main_container)
-        search_frame.pack(pady=10, padx=10, fill='x')
-        
-        ttk.Label(search_frame, text="Filter stocks:").pack(side='left', padx=5)
-        
-        self.search_var = tk.StringVar()
-        self.search_var.trace_add('write', self.on_search_change)  # Add callback for real-time filtering
-        self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
-        self.search_entry.pack(side='left', fill='x', expand=True)
-        
-        # Date Selection frame
-        date_frame = ttk.LabelFrame(self.main_container, text="Date Range")
-        date_frame.pack(pady=5, padx=10, fill='x')
-        
-        # Start date
-        start_frame = ttk.Frame(date_frame)
-        start_frame.pack(side='left', padx=5, pady=5)
-        ttk.Label(start_frame, text="Start Date:").pack(side='left', padx=2)
-        self.start_date = DateEntry(start_frame, width=12, background='darkblue',
-                                  foreground='white', borderwidth=2,
-                                  date_pattern='yyyy-mm-dd')
-        # Store reference for theme toggling
-        self.date_entries = []
-        self.date_entries.append(self.start_date)
-        self.start_date.pack(side='left', padx=2)
-        
-        # End date
-        end_frame = ttk.Frame(date_frame)
-        end_frame.pack(side='left', padx=5, pady=5)
-        ttk.Label(end_frame, text="End Date:").pack(side='left', padx=2)
-        self.end_date = DateEntry(end_frame, width=12, background='darkblue',
-                                foreground='white', borderwidth=2,
-                                date_pattern='yyyy-mm-dd')
-        self.date_entries.append(self.end_date)
-        self.end_date.pack(side='left', padx=2)
-        
-        # Set default dates
-        self.end_date.set_date(datetime.now())
-        self.start_date.set_date(datetime.now() - timedelta(days=365))
-        
-        # MA Configuration frame
-        ma_frame = ttk.LabelFrame(self.main_container, text="Moving Average Periods")
-        ma_frame.pack(pady=5, padx=10, fill='x')
-        
-        # Default MA periods
-        self.ma_entries = []
-        default_periods = [30, 50, 200]
-        
-        for i, period in enumerate(default_periods):
-            frame = ttk.Frame(ma_frame)
-            frame.pack(side='left', padx=5, pady=5)
-            
-            entry = ttk.Entry(frame, width=5)
-            entry.insert(0, str(period))
-            entry.pack(side='left', padx=2)
-            
-            ttk.Label(frame, text="days").pack(side='left')
-            self.ma_entries.append(entry)
-        
-        # Stock list
-        self.stock_list = ttk.Treeview(self.main_container, columns=('Symbol', 'Name', 'Exchange'), show='headings', height=5)
-        self.stock_list.heading('Symbol', text='Symbol')
-        self.stock_list.heading('Name', text='Name')
-        self.stock_list.heading('Exchange', text='Exchange')
-        self.stock_list.pack(pady=5, padx=5, fill='both')
-        
-        # Bind double-click event
-        self.stock_list.bind('<Double-1>', self.on_stock_select)
-        
-        # Chart frame with proper weight configuration
-        self.chart_frame = ttk.Frame(self.main_container)
-        self.chart_frame.pack(pady=10, padx=10, fill='both', expand=True)
-        self.main_container.grid_rowconfigure(0, weight=1)
-        self.main_container.grid_columnconfigure(0, weight=1)
-        self.chart_frame.grid_rowconfigure(0, weight=1)
-        self.chart_frame.grid_columnconfigure(0, weight=1)
-        
+            # Load data LAST
+            self.load_initial_stocks()
+
+        # Let loading screen render first
+        self.root.after(0, build_ui)
+
+    
     def load_initial_stocks(self):
         """Load and display the initial list of stocks."""
         self.update_stock_list([])  # Clear the list first

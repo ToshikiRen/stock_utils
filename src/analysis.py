@@ -86,7 +86,6 @@ def get_financial_indicators(ticker: str) -> Dict:
                     indicators[key] = f"{value:.2f}"  # Default format
             elif key == 'Market Cap' or key == 'Revenue (TTM)':
                 value = float(value)
-                print(value)
                 if value > 1_000_000_000_000:
                     indicators[key] = f"${value/1_000_000_000_000:.2f} trillions"  # Billions
                 elif value > 1_000_000_000:
