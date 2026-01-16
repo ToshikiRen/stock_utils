@@ -14,6 +14,13 @@ def get_stock_data(ticker: str, period: str = None, lookback_days: int = 0, star
     """
     if start_date and end_date:
         # Use date range if provided
+
+        if lookback_days > 0:
+            # Calculate the start date with lookback
+            start_date = df.index[0] - timedelta(days=lookback_days)
+            end_date = df.index[-1]
+            
+        # Fetch extended data
         df = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
     else:
         # First get the regular period data to determine start date
@@ -21,14 +28,6 @@ def get_stock_data(ticker: str, period: str = None, lookback_days: int = 0, star
         
     if df.empty:
         raise ValueError(f"No data found for ticker {ticker}")
-    
-    if lookback_days > 0 and not start_date:
-        # Calculate the start date with lookback
-        start_date = df.index[0] - timedelta(days=lookback_days)
-        end_date = df.index[-1]
-        
-        # Fetch extended data
-        df = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
     
     return df
 

@@ -99,3 +99,165 @@ def get_financial_indicators(ticker: str) -> Dict:
     except Exception as e:
         print(f"Error fetching financial indicators for {ticker}: {str(e)}")
         return {}
+
+def predict_stock_prices(df: pd.DataFrame, days_to_predict: int, model_type: str = "Linear Regression") -> pd.DataFrame:
+    """Predict stock prices for the next 'days_to_predict' days.
+    
+    Args:
+        df: DataFrame with historical data (must contain "Close" column).
+        days_to_predict: Number of days to predict into the future.
+        model_type: Type of model to use ("Linear Regression", "ARIMA", "LSTM").
+        
+    Returns:
+        DataFrame with 'Date' and 'Predicted_Close' columns.
+    """
+    import numpy as np
+    from datetime import timedelta
+    
+    df = df.copy()
+    
+    # --- ROBUST DATA EXTRACTION START ---
+    try:
+        if 'Close' not in df.columns:
+            # Fallback if Close is missing (should not happen given get_stock_data guarantees)
+            print("Error: 'Close' column missing in DataFrame")
+            return pd.DataFrame()
+
+        close_data = df['Close']
+        
+        # Handle case where yfinance returns a DataFrame for 'Close' (MultiIndex columns)
+        if isinstance(close_data, pd.DataFrame):
+            # Take the first column (assuming it's the ticker we want)
+            close_data = close_data.iloc[:, 0]
+            
+        # Ensure we have a 1D numpy array of floats
+        y_values = close_data.to_numpy(dtype=float).flatten()
+        
+        # Basic validation
+        if len(y_values) < 2:
+            print("Error: Not enough data points for prediction")
+            return pd.DataFrame()
+            
+    except Exception as e:
+        print(f"Error extracting data: {e}")
+        return pd.DataFrame()
+    # --- ROBUST DATA EXTRACTION END ---
+
+    # Prepare future dates
+    last_date = df.index[-1]
+    future_dates = [last_date + timedelta(days=i) for i in range(1, days_to_predict + 1)]
+    
+    predictions = []
+    
+    try:
+        if model_type == "Linear Regression":
+            from sklearn.linear_model import LinearRegression
+            
+            # Prepare X (Dates)
+            # Use 1D array for Ordinal Dates, then reshape for sklearn
+            ordinal_dates = df.index.map(pd.Timestamp.toordinal).to_numpy().reshape(-1, 1)
+            
+            # Train
+            model = LinearRegression()
+            model.fit(ordinal_dates, y_values)
+            
+            # Predict
+            future_ordinals = np.array([d.toordinal() for d in future_dates]).reshape(-1, 1)
+            predictions = model.predict(future_ordinals).flatten()
+            
+        elif model_type == "ARIMA":
+            from pmdarima import auto_arima
+            import warnings
+            
+            # Suppress warnings
+            warnings.filterwarnings("ignore")
+            
+            # Fit auto_arima model
+            # y_values is guaranteed 1D here
+            # trace=False to suppress output, error_action='ignore' to skip errors
+            model = auto_arima(y_values, start_p=1, start_q=1,
+                             max_p=5, max_q=5, m=1,
+                             start_P=0, seasonal=False,
+                             d=1, D=1, trace=False,
+                             error_action='ignore',  
+                             suppress_warnings=True, 
+                             stepwise=True)
+            
+            # Predict
+            output = model.predict(n_periods=days_to_predict)
+            predictions = output if isinstance(output, np.ndarray) else output.values
+            predictions = predictions.flatten()
+            
+        elif model_type == "LSTM":
+            import tensorflow as tf
+            from sklearn.preprocessing import MinMaxScaler
+            import logging
+            tf.get_logger().setLevel(logging.ERROR)
+            
+            # Reproducibility
+            tf.random.set_seed(42)
+            np.random.seed(42)
+            
+            # Reshape for scalar (N, 1)
+            data = y_values.reshape(-1, 1)
+            
+            # Normalize
+            scaler = MinMaxScaler(feature_range=(0, 1))
+            scaled_data = scaler.fit_transform(data)
+            
+            # Create sequences
+            look_back = 60
+            if len(scaled_data) <= look_back:
+                # Fallback if not enough data
+                return predict_stock_prices(df, days_to_predict, "Linear Regression")
+                
+            X_train, y_train = [], []
+            for i in range(look_back, len(scaled_data)):
+                X_train.append(scaled_data[i-look_back:i, 0])
+                y_train.append(scaled_data[i, 0])
+                
+            X_train, y_train = np.array(X_train), np.array(y_train)
+            X_train = np.reshape(X_train, (X_train.shape[0], X_train.shape[1], 1))
+            
+            # Build simple LSTM model
+            model = tf.keras.Sequential([
+                tf.keras.layers.Input(shape=(X_train.shape[1], 1)),
+                tf.keras.layers.LSTM(units=50, return_sequences=False),
+                tf.keras.layers.Dense(1)
+            ])
+            
+            model.compile(optimizer='adam', loss='mean_squared_error')
+            
+            # Train
+            model.fit(X_train, y_train, epochs=5, batch_size=32, verbose=0)
+            
+            # Predict future
+            current_batch = scaled_data[-look_back:].reshape(1, look_back, 1)
+            predicted_prices = []
+            
+            for i in range(days_to_predict):
+                pred_result = model.predict(current_batch, verbose=0)
+                current_pred = float(pred_result[0, 0]) # Ensure scalar float
+                predicted_prices.append(current_pred)
+                
+                # Update batch
+                new_pred_reshaped = np.array([[[current_pred]]])
+                current_batch = np.append(current_batch[:, 1:, :], new_pred_reshaped, axis=1)
+                
+            # Inverse transform
+            predictions = scaler.inverse_transform(np.array(predicted_prices).reshape(-1, 1)).flatten()
+            
+        else:
+            return pd.DataFrame()
+            
+        # Create result DataFrame
+        pred_df = pd.DataFrame({
+            'Predicted_Close': predictions
+        }, index=future_dates)
+        
+        return pred_df
+        
+    except Exception as e:
+        print(f"Error in prediction ({model_type}): {str(e)}")
+        # Return empty on error
+        return pd.DataFrame()

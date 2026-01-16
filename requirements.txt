@@ -4,3 +4,8 @@ matplotlib
 tkcalendar
 mplcursors
 sv-ttk
+statsmodels
+scikit-learn
+tensorflow
+numpy
+pmdarima
