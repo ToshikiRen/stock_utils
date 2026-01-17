@@ -539,7 +539,7 @@ class StockChartApp:
             
             self.model_var = tk.StringVar(value="Linear Regression")
             self.model_combo = ttk.Combobox(model_frame, textvariable=self.model_var, state="readonly")
-            self.model_combo['values'] = ("Linear Regression", "ARIMA", "LSTM")
+            self.model_combo['values'] = ("Linear Regression", "ARIMA", "LSTM", "Component Ensemble")
             self.model_combo.pack(side='left', padx=2)
 
             # Stock list
