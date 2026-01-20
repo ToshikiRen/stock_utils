@@ -16,9 +16,13 @@ def get_stock_data(ticker: str, period: str = None, lookback_days: int = 0, star
         # Use date range if provided
 
         if lookback_days > 0:
-            # Calculate the start date with lookback
-            start_date = df.index[0] - timedelta(days=lookback_days)
-            end_date = df.index[-1]
+            # We need to fetch extra data for MA calculation
+            # But we can't do it based on df.index if we haven't fetched it yet.
+            # Instead, we just subtract days from start_date
+            start_date = start_date - timedelta(days=lookback_days * 2) # Approximate trading days
+
+        # Ensure end_date is inclusive by adding 1 day
+        end_date = end_date + timedelta(days=1)
             
         # Fetch extended data
         df = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
